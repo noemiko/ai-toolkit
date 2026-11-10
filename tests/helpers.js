@@ -41,7 +41,8 @@ function removeFile(root, relativePath) {
 }
 
 function createFixture(testContext) {
-  const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-toolkit-test-'));
+  // Canonical paths keep npm's file identity consistent on macOS (/var aliases).
+  const temporaryRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ai-toolkit-test-')));
   testContext.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
 
   const consumerRoot = path.join(temporaryRoot, 'consumer');
@@ -127,12 +128,25 @@ function packSource(outputDirectory) {
     'pack', '--json', '--pack-destination', outputDirectory, '--ignore-scripts',
   ], SOURCE_ROOT);
   assertCommandSucceeded(result);
-  const packed = JSON.parse(result.stdout)[0];
+  const output = JSON.parse(result.stdout);
+  // npm 10/11 return an array; npm 12 keys results by package name.
+  const packed = Array.isArray(output) ? output[0] : output[PACKAGE_NAME];
+  assert.ok(packed && typeof packed.filename === 'string' && Array.isArray(packed.files),
+    `Unexpected npm pack output:\n${result.stdout}`);
   return { archivePath: path.join(outputDirectory, packed.filename), files: packed.files.map((file) => file.path).sort() };
+}
+
+function allowTarballScripts(consumerRoot, archivePath) {
+  const metadata = readJson(consumerRoot, 'package.json');
+  // npm 12 approves file dependencies by resolved file identity, not by the
+  // package name inside their tarball. Trust only this test's generated archive.
+  const identity = `file:${fs.realpathSync(archivePath).split(path.sep).join('/')}`;
+  metadata.allowScripts = { ...metadata.allowScripts, [identity]: true };
+  writeFile(consumerRoot, 'package.json', JSON.stringify(metadata));
 }
 
 module.exports = {
   SOURCE_ROOT, PACKAGE_NAME, SKILL_FILE, BUNDLED_SKILL, MANIFEST_FILE, npm,
   writeFile, readBytes, readText, readJson, exists, removeFile, createFixture,
-  snapshotFiles, runCommand, assertCommandSucceeded, installDependencyCopy, runBin, packSource,
+  snapshotFiles, runCommand, assertCommandSucceeded, installDependencyCopy, runBin, packSource, allowTarballScripts,
 };

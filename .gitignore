@@ -1,0 +1,22 @@
+# Dependencies (including isolated release tooling)
+node_modules/
+
+# Generated packages, coverage and caches
+*.tgz
+coverage/
+.nyc_output/
+.cache/
+.eslintcache
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+
+# Logs and local editor/OS files
+*.log
+.DS_Store
+.idea/
+.vscode/
+*~
+*.swp

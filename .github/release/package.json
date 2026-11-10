@@ -1,0 +1,9 @@
+{
+  "name": "ai-toolkit-release-tools",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@semantic-release/npm": "13.2.0"
+  },
+  "engines": { "node": ">=24.10.0" }
+}

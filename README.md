@@ -72,6 +72,12 @@ consumer project (or one of its subdirectories):
 npm exec --offline -- ai-toolkit
 ```
 
+npm 12 disables dependency install scripts by default. Use the manual command
+above, or explicitly approve this package in your consumer's package.json with
+`"allowScripts": { "@noemiko/ai-toolkit": true }` if you want automatic setup.
+The toolkit does not change that policy for you. See
+[npm's install-script policy](https://docs.npmjs.com/cli/using-npm/config/).
+
 The package must already be installed locally. Its command is also available at
 `./node_modules/.bin/ai-toolkit`. Repeat installation is idempotent. Update with:
 
@@ -156,7 +162,7 @@ npm publish --registry=https://npm.pkg.github.com
 
 Do not set `private: true` in package.json: that prevents npm publication entirely.
 Manage private visibility and access in GitHub Packages. Do not commit publishing
-credentials. Publishing and release automation are outside this starter change.
+credentials. The workflows below implement release preparation and manual publication.
 
 For a local trial without registry credentials, from the package directory run
 `npm pack --pack-destination /path/to/output`, then install the resulting tarball
@@ -168,3 +174,104 @@ visibility, repository permissions or remote installation. Check these separatel
 with an authorized consumer after publishing. The test suite uses Node's built-in
 runner and makes no registry requests for dependencies.
 # ai-toolkit
+
+
+## CI and releases
+
+The repository root is this package directory. Workflows live in `.github/workflows/`.
+
+- **CI** runs all tests and entry-point syntax checks on Node 22 and 24 for pull
+  requests and pushes to `main`. A separate Node 24 job installs locked release
+  tooling and runs the real semantic-release npm plugin without publishing.
+- **release-please**, after CI succeeds on `main`, creates or updates a release PR
+  with the version and changelog. Merging that PR lets the next successful run
+  create its GitHub release and `vX.Y.Z` tag. It never publishes the npm package.
+- **Publish package (manual)** accepts an existing stable GitHub release tag. It
+  validates that the tag is on `main`, matches package.json, and is neither a draft
+  nor a prerelease. It retests that exact commit before publishing to GitHub Packages.
+
+Use Conventional Commit titles when squash-merging PRs: `fix: ...` for patches,
+`feat: ...` for features, and `feat!: ...` with a breaking-change explanation for
+breaking changes. Before 1.0, breaking changes bump the minor version; features
+also bump minor. release-please alone owns version calculation and GitHub releases.
+The initial release configuration targets 0.1.0.
+
+### One-time GitHub setup
+
+1. In repository Actions settings, enable **Allow GitHub Actions to create and
+   approve pull requests**. Keep required test checks on the protected main branch.
+2. Add the repository Actions secret `RELEASE_PLEASE_TOKEN`: a dedicated bot's
+   fine-grained personal access token for this repository with **Contents**, **Pull
+   requests**, and **Issues** read/write permissions. A normal `GITHUB_TOKEN` does
+   not trigger CI on release PRs it creates, so this workflow deliberately requires
+   a separate token. Do not put it in any committed file.
+3. Create the `github-packages` environment. Add required reviewers if you want an
+   approval gate after manually starting publication. Restrict deployment branches
+   to `main`; the workflow itself also requires dispatch from `main`.
+4. Ensure this repository can publish `@noemiko/ai-toolkit`. For an existing GitHub
+   package, grant this repository Actions access in the package settings. The publish
+   job uses its built-in `GITHUB_TOKEN` with `packages: write`, not a stored npm PAT.
+   Verify private package visibility/access in GitHub after its first publication.
+
+### Publishing a release
+
+1. Merge a release-please PR after CI passes. Wait for its GitHub release/tag.
+2. Open **Actions → Publish package (manual) → Run workflow**.
+3. Select branch **main** and enter the release tag, for example `v0.1.0`.
+4. Review/approve the `github-packages` deployment if reviewers are configured.
+5. Verify the package version and consumer access in GitHub Packages.
+
+A tag input is resolved once to an immutable commit. The test and publish jobs use
+that same commit. Publication is serialized and never triggered by a push, tag, PR,
+or GitHub release event. Published npm versions are immutable: rerunning an already
+published version fails rather than overwriting it. An unreleased tag, mismatched
+version, prerelease, or tag outside main fails before publishing credentials are used.
+
+### Why both release tools?
+
+[release-please](https://github.com/googleapis/release-please) manages release PRs,
+versions, changelogs and GitHub tags/releases. The manual job calls
+[`@semantic-release/npm`](https://github.com/semantic-release/npm)'s
+`verifyConditions`, `prepare` and `publish` hooks against a temporary copy of the
+allowlisted package assets. Its next version is supplied from the release tag,
+so the semantic-release core version calculator/tagger is intentionally not run.
+The plugin's version preparation cannot change committed metadata.
+
+Release dependencies and their lockfile are isolated in `.github/release/` and
+excluded from the distributed toolkit. Node 24 is used for this tooling; consumer
+runtime support remains Node >=22. To run the same offline publishing preparation:
+
+```sh
+npm ci --prefix .github/release --ignore-scripts --no-audit --no-fund
+RELEASE_TAG="v$(node -p 'require("./package.json").version')" \
+  node .github/release/publish.mjs --dry-run
+```
+
+This exercises the real plugin and creates then cleans a temporary tarball. It needs
+no publishing token, does not publish, and does not edit your package metadata.
+Actual publication requires the manual GitHub Actions job. Remote workflow runs,
+repository secrets, reviewer settings and registry access must be configured on
+GitHub; local tests cannot establish them.
+
+
+## Development linting
+
+Install locked development dependencies with `npm ci --ignore-scripts`, then run:
+
+```sh
+npm run lint
+npm run lint:fix
+npm test
+```
+
+ESLint checks runtime scripts, tests, its configuration, and the ESM release
+publisher using recommended correctness rules plus strict equality, no var and
+prefer const. Warnings fail the check. `lint:fix` applies supported automatic fixes.
+Development lint tooling requires Node 22.13+ (or a supported Node 24+ release);
+the consumer runtime requirement remains Node >=22.
+CI and manual release validation run lint before tests. ESLint is a development
+dependency only and is excluded from the distributed runtime package.
+
+The gitignore excludes dependencies (including release tooling), generated
+archives, coverage/caches, logs, local environment files and editor/OS artifacts.
+Keep both package lockfiles committed for reproducible development and releases.

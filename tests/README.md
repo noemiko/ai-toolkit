@@ -11,6 +11,7 @@ Parameterized cases name the reason for rejection instead of printing raw inputs
 | `uninstall.test.js` | Removing only owned content and preserving local edits |
 | `failure.test.js` | Rollback, concurrent edits, filesystem failures and CLI exit behavior |
 | `package.test.js` | Public npm metadata, actual tarball contents, installed commands and npm --prefix regression |
+| `release.test.js` | Prevents wrong-registry, wrong-version and invalid-tag publication |
 | `helpers.js` | Temporary consumers, filesystem reads and subprocess diagnostics; no policy assertions |
 
 From the package directory, run everything with `npm test`, or one area with:

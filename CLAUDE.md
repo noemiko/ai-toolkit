@@ -27,6 +27,16 @@ and requires Node >=22.
   package tests. See `tests/README.md` for the test map.
 - `README.md`: consumer setup, authentication, lifecycle behavior, and publishing.
 
+## Release automation
+
+- CI runs lint and tests on Node 22/24 and a no-publish plugin dry run on Node 24.
+- release-please owns version/changelog PRs and GitHub releases after green main CI.
+- The manual publish workflow validates an existing stable release tag, retests
+  its commit, and uses @semantic-release/npm to publish that exact version.
+- Release dependencies and their lockfile live in `.github/release/`; they are
+  excluded from the package. Never run a competing semantic-release version engine.
+- Setup for RELEASE_PLEASE_TOKEN and the github-packages environment is in README.
+
 ## Working on this project
 
 - Preserve consumer edits and unrelated files. Never infer ownership of existing
@@ -35,7 +45,8 @@ and requires Node >=22.
   consumer authentication or package scripts.
 - Keep runtime code self-contained in the two published entry scripts. The package
   allowlist excludes development files, tests, and these project-summary files.
-- From this directory, run `npm test`. For focused checks, use
+- Install development dependencies with `npm ci --ignore-scripts`. Run
+  `npm run lint` and `npm test` from this directory. For focused checks, use
   `node --test tests/install.test.js` or another test file.
 - Check the actual release inventory with `npm pack --dry-run --json`.
 - Publishing is a separate action requiring explicit authorization and registry

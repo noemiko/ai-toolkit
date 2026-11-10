@@ -187,7 +187,7 @@ function apply(root, operations, { beforeApply } = {}) {
     const unresolved = [];
     for (const operation of completed.reverse()) {
       try {
-        if (!equal(read(root, operation.file), operation.after)) throw new Error('subsequently changed');
+        if (!equal(read(root, operation.file), operation.after)) throw new Error('subsequently changed', { cause: error });
         if (operation.before === null) fs.unlinkSync(safePath(root, operation.file));
         else atomicWrite(root, operation.file, operation.before, operation.after);
       } catch { unresolved.push(operation.file); }

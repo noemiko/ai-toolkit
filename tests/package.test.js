@@ -7,7 +7,7 @@ const path = require('node:path');
 const {
   SOURCE_ROOT, PACKAGE_NAME, SKILL_FILE, MANIFEST_FILE, npm,
   createFixture, readBytes, readText, readJson, writeFile, exists,
-  snapshotFiles, runCommand, assertCommandSucceeded, runBin, packSource,
+  snapshotFiles, runCommand, assertCommandSucceeded, runBin, packSource, allowTarballScripts,
 } = require('./helpers');
 
 describe('package: public npm contract', () => {
@@ -46,6 +46,7 @@ describe('package install: real npm consumer workflows', () => {
   it('tarball postinstall delivers artifacts and both installed bin commands work', { timeout: 120000 }, (t) => {
     const { temporaryRoot, consumerRoot } = createFixture(t);
     const { archivePath } = packSource(temporaryRoot);
+    allowTarballScripts(consumerRoot, archivePath);
 
     assertCommandSucceeded(runCommand(npm, [
       'install', archivePath, '--no-audit', '--no-fund', '--foreground-scripts',
@@ -65,6 +66,7 @@ describe('package install: real npm consumer workflows', () => {
   it('manual installation works after npm ci disables lifecycle scripts', { timeout: 120000 }, (t) => {
     const { temporaryRoot, consumerRoot } = createFixture(t);
     const { archivePath } = packSource(temporaryRoot);
+    allowTarballScripts(consumerRoot, archivePath);
     // Create the lockfile without running setup, then exercise the documented CI path.
     assertCommandSucceeded(runCommand(npm, [
       'install', archivePath, '--ignore-scripts', '--no-audit', '--no-fund',
@@ -86,6 +88,7 @@ describe('package install: real npm consumer workflows', () => {
     writeFile(callerRoot, 'AGENTS.md', 'Caller rules must remain untouched\n');
     const callerBefore = snapshotFiles(callerRoot);
     const { archivePath } = packSource(temporaryRoot);
+    allowTarballScripts(targetRoot, archivePath);
 
     assertCommandSucceeded(runCommand(npm, [
       '--prefix', targetRoot, 'install', archivePath, '--no-audit', '--no-fund', '--foreground-scripts',
