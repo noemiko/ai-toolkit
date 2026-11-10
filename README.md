@@ -1,7 +1,7 @@
 # AI Toolkit
 
 A dependency-free starter for distributing team AI artifacts as the private npm
-package `noemiko/ai-toolkit` through GitHub Packages. Requires Node >=22 and npm.
+package `@noemiko/ai-toolkit` through GitHub Packages. Requires Node >=22 and npm.
 The bundled code-review skill and rules are generic examples: customize and review
 them before adopting them as team policy.
 
@@ -10,7 +10,7 @@ them before adopting them as team policy.
 Commit an `.npmrc` containing only this registry mapping:
 
 ```ini
-noemiko:registry=https://npm.pkg.github.com
+@noemiko:registry=https://npm.pkg.github.com
 ```
 
 Do not add authentication entries to that committed file. The installer never
@@ -23,8 +23,8 @@ and access to the private package. Authorize organizational SSO if required.
 Store login in your user configuration, outside the repository:
 
 ```sh
-npm login --scope=noemiko --registry=https://npm.pkg.github.com --auth-type=legacy
-npm install --save-dev noemiko/ai-toolkit
+npm login --scope=@noemiko --registry=https://npm.pkg.github.com --auth-type=legacy
+npm install --save-dev @noemiko/ai-toolkit
 ```
 
 Alternatively configure your own user-level npm authentication. Never commit tokens.
@@ -60,9 +60,9 @@ ownership and SHA-256 baselines. Commit the generated artifacts and their manife
 together if your team checks them in; retain the manifest for updates and uninstall.
 
 ```text
-<!-- BEGIN noemiko/ai-toolkit -->
+<!-- BEGIN @noemiko/ai-toolkit -->
 ...
-<!-- END noemiko/ai-toolkit -->
+<!-- END @noemiko/ai-toolkit -->
 ```
 
 For npm installations with scripts disabled, or to retry setup, run from the
@@ -76,7 +76,7 @@ The package must already be installed locally. Its command is also available at
 `./node_modules/.bin/ai-toolkit`. Repeat installation is idempotent. Update with:
 
 ```sh
-npm update noemiko/ai-toolkit
+npm update @noemiko/ai-toolkit
 npm exec --offline -- ai-toolkit
 ```
 
@@ -98,7 +98,7 @@ Run cleanup **before** removing the npm dependency:
 
 ```sh
 npm exec --offline -- ai-toolkit-uninstall
-npm uninstall noemiko/ai-toolkit
+npm uninstall @noemiko/ai-toolkit
 ```
 
 Cleanup removes only unchanged tracked skill files and the unchanged managed rules
@@ -115,9 +115,10 @@ No npm uninstall lifecycle hook is used.
 ## Roots and failures
 
 Manual commands search upward from the current directory for the nearest
-`package.json`. Dependency postinstall searches upward from `INIT_CWD`; when absent,
-it uses the consumer enclosing the installed package's `node_modules` directory.
-Run npm from the intended consumer. Global installs, workspace-root targeting and
+`package.json`. Dependency postinstall uses the consumer enclosing the installed
+package's `node_modules` directory. It ignores `INIT_CWD`, which can identify a
+different calling project when `npm --prefix` selects the installation target.
+Global installs, workspace-root targeting and
 consumer roots inside `node_modules` are unsupported. There is no workspace
 selection option. Toolkit-source postinstall is a no-op during package development.
 
@@ -135,10 +136,9 @@ Use `npm install --foreground-scripts` when diagnosing lifecycle output.
 
 ## Maintainer workflow
 
-This starter deliberately retains the placeholder owner `twoj-zespol`. Before a
-real release:
+This package uses the GitHub owner `noemiko`. Before a real release:
 
-1. Replace it with your actual GitHub organization/user in the package name and
+1. Confirm that `noemiko` is the intended GitHub owner in the package name and
    documentation; the runtime derives its markers and identity from package.json.
    Update package-contract tests for that chosen identity. Renaming an already
    installed package requires cleaning up the old identity first.
