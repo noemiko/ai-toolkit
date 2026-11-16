@@ -1,63 +1,114 @@
 # AI Toolkit
 
-A dependency-free starter for distributing team AI artifacts as the private npm
-package `@noemiko/ai-toolkit` through GitHub Packages. Requires Node >=22 and npm.
-The bundled code-review skill and rules are generic examples: customize and review
-them before adopting them as team policy.
+Shared AI skills and rules for your team.
 
-## Consumer setup
+Package: **`@noemiko/ai-toolkit`** · Requires **Node 22+** and the **npm CLI**.
 
-Commit an `.npmrc` containing only this registry mapping:
+The package is hosted on **GitHub Packages**. You need a GitHub account.
+You do **not** need an npmjs.com account. npm is the command-line tool used here.
+
+The included code-review skill and rules are examples. Adapt them to your team.
+
+- [Install in your project](#install-in-your-project)
+- [Daily use](#daily-use)
+- [Publish a release](#publish-a-release)
+
+## Install in your project
+
+Run these steps in the project where you want to use the toolkit.
+Use a regular npm project with a `package.json`. Global installs and workspace
+selection are not supported.
+
+### 1. Set the registry
+
+Create a project `.npmrc` with this line:
 
 ```ini
 @noemiko:registry=https://npm.pkg.github.com
 ```
 
-Do not add authentication entries to that committed file. The installer never
-changes your npm configuration or package scripts and never needs your token.
+Commit this file. Keep tokens out of it.
 
-### Local authentication
+### 2. Log in to GitHub Packages
 
-Use your GitHub username and a personal access token (classic) with `read:packages`
-and access to the private package. Authorize organizational SSO if required.
-Store login in your user configuration, outside the repository:
+Create a [GitHub token (classic)](https://github.com/settings/tokens/new)
+with `read:packages`. Your GitHub account must have access to the package.
+Authorize the token for your organization’s SSO if required.
 
 ```sh
 npm login --scope=@noemiko --registry=https://npm.pkg.github.com --auth-type=legacy
-npm install --save-dev @noemiko/ai-toolkit
+npm whoami --registry=https://npm.pkg.github.com
 ```
 
-Alternatively configure your own user-level npm authentication. Never commit tokens.
-See [GitHub's npm registry documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry).
+At the prompts, enter:
 
-### CI authentication
+- **Username:** your own GitHub username.
+- **Password:** your GitHub token, not your account password.
 
-Supply `GH_PKG_TOKEN` using your CI secret store. Use a token with package read
-access, or a GitHub Actions `GITHUB_TOKEN` with `packages: read` and explicit access
-to this package. A token cannot grant access the workflow/repository does not have.
-Run the following in a POSIX shell; it creates user configuration outside the
-checkout and writes only an environment-variable reference, never the token:
+Use a classic token for local package access. A fine-grained token or an npmjs.com
+login will not work for this registry. Store credentials in your user configuration,
+outside the repository.
+
+### 3. Install and apply
 
 ```sh
-set -eu
-: "${GH_PKG_TOKEN:?Supply a package-read token from CI secrets}"
-toolkit_auth_dir=$(mktemp -d)
-trap 'rm -rf "$toolkit_auth_dir"' EXIT
-export NPM_CONFIG_USERCONFIG="$toolkit_auth_dir/npmrc"
-printf '%s\n' '//npm.pkg.github.com/:_authToken=${GH_PKG_TOKEN}' > "$NPM_CONFIG_USERCONFIG"
-npm ci
+npm install --save-dev @noemiko/ai-toolkit
+npm exec --offline -- ai-toolkit
 ```
 
-Do not print the token, upload this temporary file, or append auth to the project's
-`.npmrc`. No consumer `preinstall` helper is needed.
+The second command applies the skills and rules. It is safe to repeat.
+It also works when npm blocks automatic install scripts, as npm 12 does by default.
 
-## Installation and updates
+For automatic setup on npm 12, you can add this field to your project’s
+`package.json`:
 
-Postinstall copies `skills/code-review/` into `.agents/skills/code-review/`, adds
-one marked block to project-root `AGENTS.md`, and writes
-`.agents/.ai-toolkit-manifest.json`. The manifest records package version, file
-ownership and SHA-256 baselines. Commit the generated artifacts and their manifest
-together if your team checks them in; retain the manifest for updates and uninstall.
+```json
+"allowScripts": { "@noemiko/ai-toolkit": true }
+```
+
+The toolkit does not change your authentication, package scripts, or script policy.
+
+## Daily use
+
+Run these commands from your project. The package must already be installed.
+
+**Preview changes.** Write nothing:
+
+```sh
+npm exec --offline -- ai-toolkit --dry-run
+```
+
+**Check setup.** Write nothing. Exit `0` means current; exit `1` means changes or
+conflicts need attention. This does not look for newer versions in the registry.
+
+```sh
+npm exec --offline -- ai-toolkit --check
+```
+
+**Update the package and apply its changes:**
+
+```sh
+npm update @noemiko/ai-toolkit
+npm exec --offline -- ai-toolkit
+```
+
+**Uninstall.** Clean up toolkit files before removing the dependency:
+
+```sh
+npm exec --offline -- ai-toolkit-uninstall
+npm uninstall @noemiko/ai-toolkit
+```
+
+If cleanup reports local edits, keep the dependency until you resolve them and
+rerun cleanup. Uninstall does not accept `--dry-run` or `--check`.
+
+## What changes in your project?
+
+- `.agents/skills/code-review/` gets the review skill.
+- `AGENTS.md` gets a marked block of team rules.
+- `.agents/.ai-toolkit-manifest.json` records the version and managed content.
+
+The rules block uses these markers:
 
 ```text
 <!-- BEGIN @noemiko/ai-toolkit -->
@@ -65,213 +116,71 @@ together if your team checks them in; retain the manifest for updates and uninst
 <!-- END @noemiko/ai-toolkit -->
 ```
 
-For npm installations with scripts disabled, or to retry setup, run from the
-consumer project (or one of its subdirectories):
+Keep the markers and manifest. They let the toolkit identify its own content.
+If you commit generated skills and rules, commit the manifest with them.
+
+Updates change only tracked content that you have not edited. Existing untracked
+files are conflicts, even if their content matches. Other project content stays
+untouched. Uninstall removes unchanged managed content and preserves local edits.
+It keeps tracking for any items it could not remove. It also keeps `AGENTS.md`
+and any unrelated files.
+
+### If AGENTS.md points to CLAUDE.md
+
+`AGENTS.md -> CLAUDE.md` is supported. The toolkit keeps the link and edits only
+its marked block in the target file.
+
+The target must be an existing file inside your project. Outside targets, broken
+links, link cycles, directories, and targets under `.agents`, `.git`, or
+`node_modules` are blocked. Skills and the manifest cannot be symlink destinations.
+
+To change a tracked link’s target: uninstall the old block, change the link, then
+reinstall. If you changed it too early, restore the previous target before cleanup.
+
+## Fix common problems
+
+**`ENEEDAUTH`:** log in with the GitHub Packages command in step 2. A login to
+`registry.npmjs.org` does not authenticate you to `npm.pkg.github.com`.
+
+**Conflicting file or rules block:** back up your edits. Move an untracked file
+outside the skill directory, or restore a tracked file/block to its delivered
+content. Then rerun `ai-toolkit`. The toolkit does not merge local edits.
+
+**Missing or repeated rules markers:** restore one matching BEGIN/END pair before
+retrying. Do not append another block.
+
+**Invalid manifest:** restore a known-good copy. Deleting it loses ownership
+information and can make existing toolkit files become conflicts.
+
+**Setup did not run:** execute `npm exec --offline -- ai-toolkit`. Automatic
+postinstall errors produce a warning but do not fail `npm install`. Manual
+commands return nonzero when they fail. Use `npm install --foreground-scripts`
+to see lifecycle output.
+
+Validation runs before writes. Caught write failures trigger rollback where
+possible. A crash or forced stop can still leave partial setup. Preserve affected
+files and inspect the error before retrying. Preview and check do not test write
+permissions or lock files against other processes.
+
+## Use in another repository’s CI
+
+Commit the registry-only `.npmrc` from step 1. Add a CI secret named `GH_PKG_TOKEN`
+with package-read access. A GitHub Actions `GITHUB_TOKEN` also works if it has
+`packages: read` and the package grants access to that repository.
+
+Run this in a POSIX shell. It keeps authentication outside the checkout:
 
 ```sh
+set -eu
+: "${GH_PKG_TOKEN:?Set a package-read token in CI secrets}"
+toolkit_auth_dir=$(mktemp -d)
+trap 'rm -rf "$toolkit_auth_dir"' EXIT
+export NPM_CONFIG_USERCONFIG="$toolkit_auth_dir/npmrc"
+printf '%s\n' '//npm.pkg.github.com/:_authToken=${GH_PKG_TOKEN}' > "$NPM_CONFIG_USERCONFIG"
+npm ci
 npm exec --offline -- ai-toolkit
+npm exec --offline -- ai-toolkit --check
 ```
 
-npm 12 disables dependency install scripts by default. Use the manual command
-above, or explicitly approve this package in your consumer's package.json with
-`"allowScripts": { "@noemiko/ai-toolkit": true }` if you want automatic setup.
-The toolkit does not change that policy for you. See
-[npm's install-script policy](https://docs.npmjs.com/cli/using-npm/config/).
-
-The package must already be installed locally. Its command is also available at
-`./node_modules/.bin/ai-toolkit`. Repeat installation is idempotent. Update with:
-
-```sh
-npm update @noemiko/ai-toolkit
-npm exec --offline -- ai-toolkit
-```
-
-The installer updates only previously tracked, unchanged files. It does not adopt
-untracked existing files, even when their content matches. Move conflicting files
-to a backup outside the skill directory, or restore the last delivered version,
-before retrying. Modified obsolete files also stop updates. Unrelated files in
-skill directories and bytes outside the rules block are preserved.
-
-Keep the rules markers intact. A lone, repeated or reversed marker stops setup
-before any writes. An untracked or edited rules block also requires manual
-resolution. Preserve your edits before restoring a delivered block. A malformed
-manifest must be repaired from a known-good copy; deleting it loses ownership and
-makes existing artifacts untracked conflicts. Do not fabricate hashes to claim files.
-
-## Uninstall
-
-Run cleanup **before** removing the npm dependency:
-
-```sh
-npm exec --offline -- ai-toolkit-uninstall
-npm uninstall @noemiko/ai-toolkit
-```
-
-Cleanup removes only unchanged tracked skill files and the unchanged managed rules
-block. It keeps edited files and edited/malformed blocks, reports their paths,
-returns nonzero, and retains tracking only for those unresolved items. Restore
-those items to their delivered contents or remove them manually, then rerun cleanup
-before removing the dependency. Keep a backup if you want the edits.
-
-Missing files count as already removed. Missing manifest means no cleanup is
-attempted. Repeated completed cleanup is harmless. Only empty skill directories
-are pruned; unrelated directories and `AGENTS.md` remain, even if the file is empty.
-No npm uninstall lifecycle hook is used.
-
-## Roots and failures
-
-Manual commands search upward from the current directory for the nearest
-`package.json`. Dependency postinstall uses the consumer enclosing the installed
-package's `node_modules` directory. It ignores `INIT_CWD`, which can identify a
-different calling project when `npm --prefix` selects the installation target.
-Global installs, workspace-root targeting and
-consumer roots inside `node_modules` are unsupported. There is no workspace
-selection option. Toolkit-source postinstall is a no-op during package development.
-
-Conflicts, invalid manifests, malformed markers and unsafe paths are checked before
-writes. Symlink destinations and traversal are rejected. On caught write failures,
-the operation attempts to restore prior content without overwriting subsequent
-edits; incomplete recovery is reported with affected paths. Individual files and
-the manifest are published atomically, but a crash or forced termination can leave
-an incomplete multi-file operation. Inspect and preserve artifacts before retrying.
-
-Automatic postinstall reports setup failures but exits successfully so dependency
-installation can finish. A successful `npm install` therefore does not prove toolkit
-setup completed. Manual commands return nonzero on errors or unresolved cleanup.
-Use `npm install --foreground-scripts` when diagnosing lifecycle output.
-
-## Maintainer workflow
-
-This package uses the GitHub owner `noemiko`. Before a real release:
-
-1. Confirm that `noemiko` is the intended GitHub owner in the package name and
-   documentation; the runtime derives its markers and identity from package.json.
-   Update package-contract tests for that chosen identity. Renaming an already
-   installed package requires cleaning up the old identity first.
-2. Customize and review the example skill and rules.
-3. Add the correct GitHub `repository` metadata if repository linkage is desired.
-   Authenticate with package-write access and prepare private package permissions
-   and consumer/workflow access in GitHub.
-4. Verify locally, inspect the archive, and publish manually when authorized:
-
-```sh
-npm test
-npm pack --dry-run --json
-npm publish --registry=https://npm.pkg.github.com
-```
-
-Do not set `private: true` in package.json: that prevents npm publication entirely.
-Manage private visibility and access in GitHub Packages. Do not commit publishing
-credentials. The workflows below implement release preparation and manual publication.
-
-For a local trial without registry credentials, from the package directory run
-`npm pack --pack-destination /path/to/output`, then install the resulting tarball
-in a temporary npm project. The test suite does this automatically and checks both
-bin commands, lifecycle-disabled setup, and package contents.
-
-Local tarball verification does **not** establish GitHub authentication, private
-visibility, repository permissions or remote installation. Check these separately
-with an authorized consumer after publishing. The test suite uses Node's built-in
-runner and makes no registry requests for dependencies.
-# ai-toolkit
-
-
-## CI and releases
-
-The repository root is this package directory. Workflows live in `.github/workflows/`.
-
-- **CI** runs all tests and entry-point syntax checks on Node 22 and 24 for pull
-  requests and pushes to `main`. A separate Node 24 job installs locked release
-  tooling and runs the real semantic-release npm plugin without publishing.
-- **release-please**, after CI succeeds on `main`, creates or updates a release PR
-  with the version and changelog. Merging that PR lets the next successful run
-  create its GitHub release and `vX.Y.Z` tag. It never publishes the npm package.
-- **Publish package (manual)** accepts an existing stable GitHub release tag. It
-  validates that the tag is on `main`, matches package.json, and is neither a draft
-  nor a prerelease. It retests that exact commit before publishing to GitHub Packages.
-
-Use Conventional Commit titles when squash-merging PRs: `fix: ...` for patches,
-`feat: ...` for features, and `feat!: ...` with a breaking-change explanation for
-breaking changes. Before 1.0, breaking changes bump the minor version; features
-also bump minor. release-please alone owns version calculation and GitHub releases.
-The initial release configuration targets 0.1.0.
-
-### One-time GitHub setup
-
-1. In repository Actions settings, enable **Allow GitHub Actions to create and
-   approve pull requests**. Keep required test checks on the protected main branch.
-2. Add the repository Actions secret `RELEASE_PLEASE_TOKEN`: a dedicated bot's
-   fine-grained personal access token for this repository with **Contents**, **Pull
-   requests**, and **Issues** read/write permissions. A normal `GITHUB_TOKEN` does
-   not trigger CI on release PRs it creates, so this workflow deliberately requires
-   a separate token. Do not put it in any committed file.
-3. Create the `github-packages` environment. Add required reviewers if you want an
-   approval gate after manually starting publication. Restrict deployment branches
-   to `main`; the workflow itself also requires dispatch from `main`.
-4. Ensure this repository can publish `@noemiko/ai-toolkit`. For an existing GitHub
-   package, grant this repository Actions access in the package settings. The publish
-   job uses its built-in `GITHUB_TOKEN` with `packages: write`, not a stored npm PAT.
-   Verify private package visibility/access in GitHub after its first publication.
-
-### Publishing a release
-
-1. Merge a release-please PR after CI passes. Wait for its GitHub release/tag.
-2. Open **Actions → Publish package (manual) → Run workflow**.
-3. Select branch **main** and enter the release tag, for example `v0.1.0`.
-4. Review/approve the `github-packages` deployment if reviewers are configured.
-5. Verify the package version and consumer access in GitHub Packages.
-
-A tag input is resolved once to an immutable commit. The test and publish jobs use
-that same commit. Publication is serialized and never triggered by a push, tag, PR,
-or GitHub release event. Published npm versions are immutable: rerunning an already
-published version fails rather than overwriting it. An unreleased tag, mismatched
-version, prerelease, or tag outside main fails before publishing credentials are used.
-
-### Why both release tools?
-
-[release-please](https://github.com/googleapis/release-please) manages release PRs,
-versions, changelogs and GitHub tags/releases. The manual job calls
-[`@semantic-release/npm`](https://github.com/semantic-release/npm)'s
-`verifyConditions`, `prepare` and `publish` hooks against a temporary copy of the
-allowlisted package assets. Its next version is supplied from the release tag,
-so the semantic-release core version calculator/tagger is intentionally not run.
-The plugin's version preparation cannot change committed metadata.
-
-Release dependencies and their lockfile are isolated in `.github/release/` and
-excluded from the distributed toolkit. Node 24 is used for this tooling; consumer
-runtime support remains Node >=22. To run the same offline publishing preparation:
-
-```sh
-npm ci --prefix .github/release --ignore-scripts --no-audit --no-fund
-RELEASE_TAG="v$(node -p 'require("./package.json").version')" \
-  node .github/release/publish.mjs --dry-run
-```
-
-This exercises the real plugin and creates then cleans a temporary tarball. It needs
-no publishing token, does not publish, and does not edit your package metadata.
-Actual publication requires the manual GitHub Actions job. Remote workflow runs,
-repository secrets, reviewer settings and registry access must be configured on
-GitHub; local tests cannot establish them.
-
-
-## Development linting
-
-Install locked development dependencies with `npm ci --ignore-scripts`, then run:
-
-```sh
-npm run lint
-npm run lint:fix
-npm test
-```
-
-ESLint checks runtime scripts, tests, its configuration, and the ESM release
-publisher using recommended correctness rules plus strict equality, no var and
-prefer const. Warnings fail the check. `lint:fix` applies supported automatic fixes.
-Development lint tooling requires Node 22.13+ (or a supported Node 24+ release);
-the consumer runtime requirement remains Node >=22.
-CI and manual release validation run lint before tests. ESLint is a development
-dependency only and is excluded from the distributed runtime package.
-
-The gitignore excludes dependencies (including release tooling), generated
-archives, coverage/caches, logs, local environment files and editor/OS artifacts.
-Keep both package lockfiles committed for reproducible development and releases.
+Use `npm ci` after committing a lockfile that includes the toolkit.
+Do not print tokens or commit authentication files.

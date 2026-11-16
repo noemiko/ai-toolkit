@@ -48,6 +48,41 @@ function skillPath(value) {
     value.split('/').every((part) => part && part !== '.' && part !== '..' && !/[\\:\0]/.test(part));
 }
 
+function rulesTargetPath(value) {
+  if (typeof value !== 'string' || !value) return false;
+  const parts = value.split('/');
+  return parts.every((part) => part && part !== '.' && part !== '..' &&
+    !/[\\:\0]/.test(part) && !['.agents', '.git', 'node_modules'].includes(part));
+}
+
+// Only the logical rules entry point may be a symlink. All reads and atomic
+// writes use its validated, in-project regular-file target, preserving the link.
+function resolveRulesPath(root) {
+  if (!statIfPresent(path.join(root, RULES))?.isSymbolicLink()) {
+    safePath(root, RULES);
+    return RULES;
+  }
+  let target;
+  try { target = fs.realpathSync(path.join(root, RULES)); }
+  catch (error) { throw new Error(`Cannot resolve ${RULES} symlink; its target must be an existing regular file inside the project.`, { cause: error }); }
+  const relative = path.relative(fs.realpathSync(root), target).split(path.sep).join('/');
+  if (!rulesTargetPath(relative)) throw new Error(`Unsafe ${RULES} symlink target: ${target}; use a file inside the project outside .agents, .git and node_modules.`);
+  safePath(root, relative);
+  return relative;
+}
+
+function readRules(root, trackedRules) {
+  const file = resolveRulesPath(root);
+  if (trackedRules?.target !== undefined && trackedRules.target !== file) {
+    throw new Error(`${RULES} target changed from ${trackedRules.target} to ${file}; restore the previous link before updating or uninstalling.`);
+  }
+  return { file, bytes: read(root, file) };
+}
+
+function guardRulesTarget(root, expected) {
+  if (resolveRulesPath(root) !== expected) throw new Error(`${RULES} target changed during operation; no new target will be modified.`);
+}
+
 function readManifest(root) {
   const bytes = read(root, MANIFEST);
   if (bytes === null) return { bytes, value: null };
@@ -60,7 +95,8 @@ function readManifest(root) {
       typeof value.version !== 'string' || !value.version || !record(value.files) ||
       !Object.entries(value.files).every(([file, sum]) => skillPath(file) && digest(sum)) ||
       !(value.rules === null || (record(value.rules) && value.rules.path === RULES &&
-        value.rules.begin === BEGIN && value.rules.end === END && digest(value.rules.sha256)))) {
+        value.rules.begin === BEGIN && value.rules.end === END && digest(value.rules.sha256) &&
+        (value.rules.target === undefined || rulesTargetPath(value.rules.target))))) {
     throw new Error(`Unsupported or malformed ${MANIFEST}; preserve and repair it before retrying.`);
   }
   for (const file of Object.keys(value.files)) safePath(root, file);
@@ -172,12 +208,13 @@ function prune(root, files) {
 }
 
 // beforeApply is an in-process fault-injection seam; it is not a CLI option.
-function apply(root, operations, { beforeApply } = {}) {
+function apply(root, operations, { beforeApply, validate } = {}) {
   const completed = [];
   try {
     for (const [index, operation] of operations.entries()) {
-      if (equal(operation.before, operation.after)) continue;
+      if (equal(operation.before, operation.after)) { validate?.(); continue; }
       beforeApply?.(operation, index);
+      validate?.();
       if (!equal(read(root, operation.file), operation.before)) throw new Error(`File changed during operation: ${operation.file}`);
       if (operation.after === null) fs.unlinkSync(safePath(root, operation.file));
       else atomicWrite(root, operation.file, operation.after, operation.before);
@@ -196,7 +233,7 @@ function apply(root, operations, { beforeApply } = {}) {
   }
 }
 
-function install(root, { packageDir = __dirname, beforeApply } = {}) {
+function planInstall(root, { packageDir = __dirname } = {}) {
   const { bytes: previousBytes, value: previous } = readManifest(root);
   const incoming = bundledFiles(packageDir);
   const operations = [];
@@ -210,7 +247,7 @@ function install(root, { packageDir = __dirname, beforeApply } = {}) {
     if (after !== null) files[file] = hash(after);
     operations.push({ file, before, after });
   }
-  const rulesBefore = read(root, RULES);
+  const { file: rulesFile, bytes: rulesBefore } = readRules(root, previous?.rules);
   const block = parseRules(rulesBefore);
   if (block && (!previous?.rules || hash(block.bytes) !== previous.rules.sha256)) {
     throw new Error(`Conflicting managed rules in ${RULES}; preserve local edits before retrying.`);
@@ -228,32 +265,55 @@ function install(root, { packageDir = __dirname, beforeApply } = {}) {
     const separator = prefix.length && prefix[prefix.length - 1] !== 10 ? Buffer.from(newline) : Buffer.alloc(0);
     rulesAfter = Buffer.concat([prefix, separator, replacement, Buffer.from(newline)]);
   }
-  operations.push({ file: RULES, before: rulesBefore, after: rulesAfter });
+  operations.push({ file: rulesFile, before: rulesBefore, after: rulesAfter });
   const version = JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')).version;
   const manifest = { schemaVersion: 1, package: PACKAGE, version, files,
-    rules: { path: RULES, begin: BEGIN, end: END, sha256: hash(replacement) } };
+    rules: { path: RULES, begin: BEGIN, end: END, sha256: hash(replacement),
+      ...(rulesFile !== RULES ? { target: rulesFile } : {}) } };
   operations.push({ file: MANIFEST, before: previousBytes, after: Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`) });
-  apply(root, operations, { beforeApply });
+  return { manifest, operations, rulesFile };
+}
+
+function install(root, { packageDir = __dirname, beforeApply } = {}) {
+  const { manifest, operations, rulesFile } = planInstall(root, { packageDir });
+  apply(root, operations, { beforeApply, validate: () => guardRulesTarget(root, rulesFile) });
   try { prune(root, operations.filter((op) => op.after === null).map((op) => op.file)); }
   catch (error) { throw new Error(`Artifacts installed, but empty-directory cleanup is incomplete: ${error.message}`, { cause: error }); }
   return manifest;
 }
 
 function run(action, { postinstall = false } = {}) {
+  const args = process.argv.slice(2);
+  const automatic = postinstall && args.length === 0;
   try {
-    if (process.argv.length > 2) throw new Error('No CLI arguments are supported; run the command from your consumer project.');
-    const root = resolveRoot({ postinstall });
+    if (args.length > 1 || (args.length && (action !== install || !['--dry-run', '--check'].includes(args[0])))) {
+      throw new Error('Usage: ai-toolkit [--dry-run | --check], or ai-toolkit-uninstall without arguments. Run from your consumer project.');
+    }
+    const root = resolveRoot({ postinstall: automatic });
     if (root === null) { console.log('ai-toolkit: source-package postinstall skipped.'); return; }
+    if (args.length) {
+      const { operations } = planInstall(root);
+      const changes = operations.filter((operation) => !equal(operation.before, operation.after));
+      const check = args[0] === '--check';
+      console.log(`ai-toolkit: ${check ? 'check' : 'dry run'} in ${root}; no files written.`);
+      for (const operation of changes) {
+        const verb = operation.after === null ? 'remove' : operation.before === null ? 'create' : 'update';
+        console.log(`${check ? 'needs' : 'would'} ${verb}: ${operation.file}`);
+      }
+      console.log(changes.length ? `ai-toolkit: ${changes.length} file(s) need changes.` : 'ai-toolkit: installation is up to date.');
+      process.exitCode = check && changes.length ? 1 : 0;
+      return;
+    }
     const result = action(root);
     if (result?.preserved?.length) {
       console.error(`ai-toolkit: cleanup incomplete; preserved local edits: ${result.preserved.join(', ')}. Restore delivered content or remove these items manually before retrying.`);
       process.exitCode = 1;
     } else console.log(`ai-toolkit: ${action === install ? 'installed' : 'uninstalled'} in ${root}.`);
   } catch (error) {
-    console.error(`ai-toolkit: ${postinstall ? 'artifacts were not fully installed' : 'operation failed'}: ${error.message} Resolve the reported issue, then rerun ${action === install ? 'ai-toolkit' : 'ai-toolkit-uninstall'} from your project.`);
-    process.exitCode = postinstall ? 0 : 1;
+    console.error(`ai-toolkit: ${automatic ? 'artifacts were not fully installed' : 'operation failed'}: ${error.message} Resolve the reported issue, then rerun ${action === install ? 'ai-toolkit' : 'ai-toolkit-uninstall'} from your project.`);
+    process.exitCode = automatic ? 0 : 1;
   }
 }
 
-module.exports = { PACKAGE, BEGIN, END, MANIFEST, RULES, hash, read, readManifest, parseRules, resolveRoot, safePath, apply, prune, install, run };
+module.exports = { PACKAGE, BEGIN, END, MANIFEST, RULES, hash, read, readManifest, readRules, guardRulesTarget, parseRules, resolveRoot, safePath, apply, prune, planInstall, install, run };
 if (require.main === module) run(install, { postinstall: process.env.npm_lifecycle_event === 'postinstall' });

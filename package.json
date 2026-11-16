@@ -21,8 +21,8 @@
     "lint:fix": "npm run lint -- --fix"
   },
   "bin": {
-    "ai-toolkit": "./install.js",
-    "ai-toolkit-uninstall": "./uninstall.js"
+    "ai-toolkit": "install.js",
+    "ai-toolkit-uninstall": "uninstall.js"
   },
   "engines": {
     "node": ">=22"

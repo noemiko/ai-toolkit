@@ -40,23 +40,34 @@ function removeFile(root, relativePath) {
   fs.unlinkSync(path.join(root, relativePath));
 }
 
-function createFixture(testContext) {
+function createTemporaryDirectory(testContext) {
   // Canonical paths keep npm's file identity consistent on macOS (/var aliases).
   const temporaryRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ai-toolkit-test-')));
   testContext.after(() => fs.rmSync(temporaryRoot, { recursive: true, force: true }));
+  return temporaryRoot;
+}
 
+// Root selection and npm integration need project metadata, not a source copy.
+function createProjectFixture(testContext) {
+  const temporaryRoot = createTemporaryDirectory(testContext);
   const consumerRoot = path.join(temporaryRoot, 'consumer');
   const packageRoot = path.join(temporaryRoot, 'distribution');
   writeFile(consumerRoot, 'package.json', JSON.stringify({ name: 'consumer', version: '1.0.0', private: true }));
+  writeFile(packageRoot, 'package.json', readBytes(SOURCE_ROOT, 'package.json'));
+  return { temporaryRoot, consumerRoot, packageRoot };
+}
+
+// Installer tests need editable bundled artifacts and executable entry scripts.
+function createFixture(testContext) {
+  const fixture = createProjectFixture(testContext);
+  const { consumerRoot, packageRoot } = fixture;
   fs.cpSync(SOURCE_ROOT, packageRoot, {
     recursive: true,
     filter: (file) => !['tests', 'node_modules', '.git'].includes(path.basename(file)),
   });
 
   return {
-    temporaryRoot,
-    consumerRoot,
-    packageRoot,
+    ...fixture,
     install: (options = {}) => install(consumerRoot, { packageDir: packageRoot, ...options }),
   };
 }
@@ -75,6 +86,31 @@ function snapshotFiles(root) {
   }
   visit(root);
   return files;
+}
+
+// A read-only command must also preserve directories, permissions and mtimes.
+function snapshotTree(root) {
+  const entries = {};
+  function visit(file) {
+    const stat = fs.lstatSync(file);
+    entries[path.relative(root, file)] = { mode: stat.mode, mtime: stat.mtimeMs };
+    if (stat.isDirectory()) {
+      for (const name of fs.readdirSync(file)) visit(path.join(file, name));
+    }
+  }
+  visit(root);
+  return { entries, files: snapshotFiles(root) };
+}
+
+function assertReadOnlyCommand(fixture, args, command = 'install.js') {
+  const consumerBefore = snapshotTree(fixture.consumerRoot);
+  const packageBefore = snapshotTree(fixture.packageRoot);
+
+  const result = runCommand(process.execPath, [path.join(fixture.packageRoot, command), ...args], fixture.consumerRoot);
+
+  assert.deepEqual(snapshotTree(fixture.consumerRoot), consumerBefore, 'Command must not modify the consumer');
+  assert.deepEqual(snapshotTree(fixture.packageRoot), packageBefore, 'Command must not modify the package');
+  return result;
 }
 
 function commandEnvironment(overrides) {
@@ -116,9 +152,9 @@ function installDependencyCopy(consumerRoot, packageRoot) {
   return installedRoot;
 }
 
-function runBin(consumerRoot, commandName) {
+function runBin(consumerRoot, commandName, args = []) {
   const extension = process.platform === 'win32' ? '.cmd' : '';
-  return runCommand(path.join(consumerRoot, 'node_modules/.bin', commandName + extension), [], consumerRoot);
+  return runCommand(path.join(consumerRoot, 'node_modules/.bin', commandName + extension), args, consumerRoot);
 }
 
 function packSource(outputDirectory) {
@@ -147,6 +183,8 @@ function allowTarballScripts(consumerRoot, archivePath) {
 
 module.exports = {
   SOURCE_ROOT, PACKAGE_NAME, SKILL_FILE, BUNDLED_SKILL, MANIFEST_FILE, npm,
-  writeFile, readBytes, readText, readJson, exists, removeFile, createFixture,
-  snapshotFiles, runCommand, assertCommandSucceeded, installDependencyCopy, runBin, packSource, allowTarballScripts,
+  writeFile, readBytes, readText, readJson, exists, removeFile,
+  createTemporaryDirectory, createProjectFixture, createFixture,
+  snapshotFiles, assertReadOnlyCommand, runCommand, assertCommandSucceeded,
+  installDependencyCopy, runBin, packSource, allowTarballScripts,
 };

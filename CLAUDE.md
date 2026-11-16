@@ -9,6 +9,12 @@ and requires Node >=22.
 - `install.js` runs automatically through npm postinstall or manually through
   `ai-toolkit`. It copies bundled skills into the consumer's `.agents/skills/`
   and adds a sentinel-delimited rules block to project-root `AGENTS.md`.
+- Consumer `AGENTS.md` may link to a regular file inside the project, such as
+  `CLAUDE.md`. Preserve the link and manage only the target block. Record and
+  recheck its resolved target; reject outside, broken or protected-path targets.
+- `ai-toolkit --dry-run` previews create/update/remove actions without writes;
+  `ai-toolkit --check` returns 0 only when local artifacts and manifest are current.
+  Both reuse installation validation and return nonzero for conflicts.
 - `.agents/.ai-toolkit-manifest.json` records package version, owned file paths,
   and delivered SHA-256 hashes. Updates change only tracked, unchanged content;
   conflicting files and malformed rules markers stop setup.

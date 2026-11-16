@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   SOURCE_ROOT, PACKAGE_NAME, SKILL_FILE, MANIFEST_FILE, npm,
-  createFixture, readBytes, readText, readJson, writeFile, exists,
+  createTemporaryDirectory, createProjectFixture, readBytes, readText, readJson, writeFile, exists,
   snapshotFiles, runCommand, assertCommandSucceeded, runBin, packSource, allowTarballScripts,
 } = require('./helpers');
 
@@ -31,7 +31,7 @@ describe('package: public npm contract', () => {
   });
 
   it('the actual source tarball excludes tests and development files', { timeout: 120000 }, (t) => {
-    const { temporaryRoot } = createFixture(t);
+    const temporaryRoot = createTemporaryDirectory(t);
 
     const packed = packSource(temporaryRoot);
 
@@ -44,7 +44,7 @@ describe('package: public npm contract', () => {
 
 describe('package install: real npm consumer workflows', () => {
   it('tarball postinstall delivers artifacts and both installed bin commands work', { timeout: 120000 }, (t) => {
-    const { temporaryRoot, consumerRoot } = createFixture(t);
+    const { temporaryRoot, consumerRoot } = createProjectFixture(t);
     const { archivePath } = packSource(temporaryRoot);
     allowTarballScripts(consumerRoot, archivePath);
 
@@ -54,6 +54,8 @@ describe('package install: real npm consumer workflows', () => {
 
     assert.deepEqual(readBytes(consumerRoot, SKILL_FILE), readBytes(SOURCE_ROOT, 'skills/code-review/SKILL.md'));
     assert.equal(readJson(consumerRoot, MANIFEST_FILE).package, PACKAGE_NAME);
+    assertCommandSucceeded(runBin(consumerRoot, 'ai-toolkit', ['--check']));
+    assertCommandSucceeded(runBin(consumerRoot, 'ai-toolkit', ['--dry-run']));
     assertCommandSucceeded(runBin(consumerRoot, 'ai-toolkit-uninstall'));
     assert.equal(exists(consumerRoot, MANIFEST_FILE), false);
     assert.equal(exists(consumerRoot, SKILL_FILE), false);
@@ -64,7 +66,7 @@ describe('package install: real npm consumer workflows', () => {
   });
 
   it('manual installation works after npm ci disables lifecycle scripts', { timeout: 120000 }, (t) => {
-    const { temporaryRoot, consumerRoot } = createFixture(t);
+    const { temporaryRoot, consumerRoot } = createProjectFixture(t);
     const { archivePath } = packSource(temporaryRoot);
     allowTarballScripts(consumerRoot, archivePath);
     // Create the lockfile without running setup, then exercise the documented CI path.
@@ -82,7 +84,7 @@ describe('package install: real npm consumer workflows', () => {
   });
 
   it('npm --prefix installs in the target and leaves the calling project unchanged', { timeout: 120000 }, (t) => {
-    const { temporaryRoot, consumerRoot: callerRoot } = createFixture(t);
+    const { temporaryRoot, consumerRoot: callerRoot } = createProjectFixture(t);
     const targetRoot = path.join(temporaryRoot, 'target');
     writeFile(targetRoot, 'package.json', '{"name":"target","version":"1.0.0","private":true}');
     writeFile(callerRoot, 'AGENTS.md', 'Caller rules must remain untouched\n');

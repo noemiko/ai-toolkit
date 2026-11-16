@@ -4,7 +4,7 @@ const { describe, it, before } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { SOURCE_ROOT, createFixture, readJson, snapshotFiles } = require('./helpers');
+const { SOURCE_ROOT, createProjectFixture, readJson, snapshotFiles } = require('./helpers');
 
 let validateRelease;
 let runRelease;
@@ -13,7 +13,7 @@ before(async () => {
 });
 
 describe('package release: publication guards', () => {
-  it('accepts the package version selected by release-please without calculating another version', () => {
+  it('accepts a stable tag matching the package version', () => {
     const metadata = readJson(SOURCE_ROOT, 'package.json');
 
     assert.doesNotThrow(() => validateRelease(metadata, `v${metadata.version}`));
@@ -56,7 +56,7 @@ describe('package release: publication guards', () => {
   });
 
   it('a mismatched release fails before staging files or calling the publishing plugin', async (t) => {
-    const { packageRoot } = createFixture(t);
+    const { packageRoot } = createProjectFixture(t);
     const before = snapshotFiles(packageRoot);
 
     await assert.rejects(runRelease({ cwd: packageRoot, tag: 'v999.0.0', dryRun: true }), /must match/);
