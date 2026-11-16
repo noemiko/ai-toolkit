@@ -1,6 +1,6 @@
 {
   "name": "@noemiko/ai-toolkit",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Team AI artifacts distributed through GitHub Packages",
   "license": "UNLICENSED",
   "type": "commonjs",
